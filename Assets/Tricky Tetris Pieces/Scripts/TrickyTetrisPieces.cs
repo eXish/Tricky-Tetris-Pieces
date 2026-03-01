@@ -914,4 +914,137 @@ public class TrickyTetrisPieces : MonoBehaviour {
 
         return str;
     }
+
+    // The help message given to Twitch Plays users
+    private readonly string TwitchHelpMessage = @"!{0} press C12 [Presses the tile at coordinate C12] | !{0} press D19 45 [Presses the tile at coordinate D19 when the module's timer is 45] | !{0} switch [Presses the switch] | !{0} hl B9 F16 [Briefly highlights the tile at B9, then F16]";
+
+    // Process Twitch Plays commands sent to the module
+    IEnumerator ProcessTwitchCommand(string command)
+    {
+        // Handle the switch command
+        if (command.EqualsIgnoreCase("switch"))
+        {
+            if (switchFlipped)
+            {
+                yield return "sendtochaterror The switch cannot be pressed again!";
+                yield break;
+            }
+            yield return null;
+            Switch.OnInteract();
+            yield break;
+        }
+        string[] parameters = command.Split(' ');
+        // Handle the press command
+        if (parameters[0].EqualsIgnoreCase("press"))
+        {
+            if (parameters.Length > 3)
+                yield return "sendtochaterror Too many parameters!";
+            else if (parameters.Length == 1)
+                yield return "sendtochaterror Please specify a coordinate of a tile to press!";
+            else if (parameters.Length == 2)
+            {
+                int rowNumber;
+                if (parameters[1].Length <= 1 || !"ABCDEFGHIJ".Contains(parameters[1].ToUpper()[0]) || !int.TryParse(parameters[1].Substring(1), out rowNumber) || rowNumber < 1 || rowNumber > 20)
+                {
+                    yield return "sendtochaterror!f The specified coordinate '" + parameters[1] + "' is invalid!";
+                    yield break;
+                }
+                if (!canPress)
+                {
+                    yield return "sendtochaterror Tiles cannot be pressed right now!";
+                    yield break;
+                }
+                yield return null;
+                TileSelectables[10 * (rowNumber - 1) + "ABCDEFGHIJ".IndexOf(parameters[1].ToUpper()[0])].OnInteract();
+            }
+            else
+            {
+                int rowNumber;
+                if (parameters[1].Length <= 1 || !"ABCDEFGHIJ".Contains(parameters[1].ToUpper()[0]) || !int.TryParse(parameters[1].Substring(1), out rowNumber) || rowNumber < 1 || rowNumber > 20)
+                {
+                    yield return "sendtochaterror!f The specified coordinate '" + parameters[1] + "' is invalid!";
+                    yield break;
+                }
+                int time;
+                if (!int.TryParse(parameters[2], out time) || time < 1)
+                {
+                    yield return "sendtochaterror!f The specified time '" + parameters[2] + "' is invalid!";
+                    yield break;
+                }
+                if (!canPress)
+                {
+                    yield return "sendtochaterror Tiles cannot be pressed right now!";
+                    yield break;
+                }
+                if (!canCountDown)
+                {
+                    yield return "sendtochaterror The timer is not currently active!";
+                    yield break;
+                }
+                yield return null;
+                while (moduleTimer != time) yield return "trycancel";
+                TileSelectables[10 * (rowNumber - 1) + "ABCDEFGHIJ".IndexOf(parameters[1].ToUpper()[0])].OnInteract();
+            }
+        }
+        // Handle the highlight command
+        else if (parameters[0].EqualsIgnoreCase("hl"))
+        {
+            if (parameters.Length == 1)
+                yield return "sendtochaterror Please specify a coordinate of a tile to highlight!";
+            else
+            {
+                for (int i = 1; i < parameters.Length; i++)
+                {
+                    int rowNumber;
+                    if (parameters[i].Length <= 1 || !"ABCDEFGHIJ".Contains(parameters[i].ToUpper()[0]) || !int.TryParse(parameters[i].Substring(1), out rowNumber) || rowNumber < 1 || rowNumber > 20)
+                    {
+                        yield return "sendtochaterror!f The specified coordinate '" + parameters[i] + "' is invalid!";
+                        yield break;
+                    }
+                }
+                if (!switchFlipped)
+                {
+                    yield return "sendtochaterror The switch must be pressed in order to highlight tiles!";
+                    yield break;
+                }
+                yield return null;
+                for (int i = 1; i < parameters.Length; i++)
+                {
+                    yield return "trycancel";
+                    TileSelectables[10 * (int.Parse(parameters[i].Substring(1)) - 1) + "ABCDEFGHIJ".IndexOf(parameters[i].ToUpper()[0])].OnHighlight();
+                    yield return new WaitForSeconds(2f);
+                    TileSelectables[10 * (int.Parse(parameters[i].Substring(1)) - 1) + "ABCDEFGHIJ".IndexOf(parameters[i].ToUpper()[0])].OnHighlightEnded();
+                }
+            }
+        }
+    }
+
+    // Handle solving the module if Twitch Plays requests it
+    IEnumerator TwitchHandleForcedSolve()
+    {
+        while (!canPress) yield return true;
+        if (!stageTwo)
+        {
+            for (int i = 0; i < gridIDs.Length; i++)
+            {
+                if (gridIDs[i] == firstPieceIndex)
+                {
+                    TileSelectables[i].OnInteract();
+                    break;
+                }
+            }
+            while (!canPress) yield return true;
+        }
+        for (int i = 0; i < gridIDs.Length; i++)
+        {
+            if ((noSecondPiece && gridIDs[i] == firstPieceIndex) || (!noSecondPiece && gridShapes[i] == secondPieceShape))
+            {
+                var correctPalette = palettes[pieces[gridIDs[i]].GetPaletteIndex()];
+                var palId = halfModulesSolved ? correctPalette.GetPaletteID() + ID_INCREASE_FACTOR : correctPalette.GetPaletteID();
+                while (!CheckValidTime(moduleTimer, palId)) yield return true;
+                TileSelectables[i].OnInteract();
+                break;
+            }
+        }
+    }
 }
